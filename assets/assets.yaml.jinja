@@ -89,6 +89,24 @@ resources:
             dependsOn:
                 - assets-healthcheck
     -
+        name: assets-odp-proxy-backend
+        properties:
+            backends:
+            {% for zone in properties["zones"] %}
+                -
+                    balancingMode: RATE
+                    group: compute/v1/projects/{{ env['project'] }}/zones/{{ zone }}/networkEndpointGroups/{{ properties["neg_odp_proxy"] }}
+                    maxRatePerEndpoint: 100 # Possibility of oversaturatin assets odp proxy. Should be handled by k8s autoscaler
+            {% endfor %}
+            description: "BackendService pointing to assets odp proxy instances"
+            name: assets-odp-proxy-backend
+            enableCDN: true
+            healthChecks: [$(ref.assets-healthcheck.selfLink)]
+        type: compute.v1.backendServices
+        metadata:
+            dependsOn:
+                - assets-healthcheck
+    -
         name: assets-urlmap
         properties:
             defaultService: $(ref.assets-bucket-backend.selfLink)
@@ -102,6 +120,9 @@ resources:
                         -
                             paths: ['/thumb/*']
                             service: $(ref.assets-imgproxy-backend.selfLink)
+                        -
+                            paths: ['/thumbs/*', '/amv/*', '/spa/*', '/dbb/*', '/bol/*', '/bbw/*', '/bre/*', '/cli/*', '/dah/*', '/dem/*', '/demo/*', '/vdb/*', '/doe/*', '/mdr/*', '/eir/*', '/tfl/*', '/fry/*', '/gew/*', '/gof/*', '/gor/*', '/gro/*', '/cmh/*', '/har/*', '/hgh/*', '/hil/*', '/how/*', '/kan/*', '/lan/*', '/lee/*', '/lem/*', '/lho/*', '/gmh/*', '/mss/*', '/gmd/*', '/nwm/*', '/ost/*', '/oss/*', '/lnp/*', '/vro/*', '/cti/*', '/tgg/*', '/tri/*', '/uba/*', '/vgb/*', '/vib/*', '/tvb/*', '/mvp/*', '/vug/*', '/maa/*', '/she/*', '/wwm/*', '/zaa/*', '/zmo/*', '/zoe/*', '/zun/*', '/zup/*']
+                            service: $(ref.assets-odp-proxy-backend.selfLink)
             hostRules:
                 -
                     hosts: ['*']
@@ -111,6 +132,7 @@ resources:
             dependsOn:
                 - assets-imgproxy-backend
                 - assets-bucket-backend
+                - assets-odp-proxy-backend
     -
         name: assets-target-proxy
         properties:
