@@ -7,6 +7,7 @@ resources:
       properties:
           zones: [europe-west4-a, europe-west4-b, europe-west4-c]
           neg: k8s1-c98ed33d-imgproxy-imgproxy-80-877eca6f
+          neg_odp_proxy: k8s1-c98ed33d-assets-odp-proxy-assets-odp-proxy-80-e0d3d4dc
           bucket: insiders-staging-citynavigator-assets
           domainVersion: 'second'
           domains:
