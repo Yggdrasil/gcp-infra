@@ -1,0 +1,19 @@
+imports:
+    - path: assets.yaml.jinja
+
+resources:
+    - name: assets
+      type: assets.yaml.jinja
+      properties:
+          zones: [europe-west4-a, europe-west4-b, europe-west4-c]
+          neg: k8s1-c98ed33d-imgproxy-imgproxy-80-877eca6f
+          bucket: insiders-staging-citynavigator-assets
+          domainVersion: 'second'
+          domains:
+              second: ['assets.citynavigator.nl.staging.insiders.dev']
+          network: staging
+          # Find this by viewing a VM instance in GCP
+          healthCheckVmTags: ['gke-staging-0923f481-node']
+          # Googles healthcheck ip's, as per: https://cloud.google.com/kubernetes-engine/docs/how-to/standalone-neg#attaching-ext-https-lb
+          healthCheckSources: ['130.211.0.0/22', '35.191.0.0/16']
+          healthCheckPorts: [8080]

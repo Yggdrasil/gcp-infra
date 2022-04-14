@@ -1,0 +1,167 @@
+---
+resources:
+    -
+        name: assets-firewall
+        properties:
+            name: "assets-firewall"
+            description: "Allow access Google to make TCP connections for healthchecks"
+            network: compute/v1/projects/{{ env['project'] }}/global/networks/{{ properties['network'] }}
+            direction: INGRESS
+            targetTags:
+            {% for tag in properties["healthCheckVmTags"] %}
+             - {{ tag }}
+            {% endfor %}
+            sourceRanges:
+            {% for source in properties["healthCheckSources"] %}
+             - {{ source }}
+            {% endfor %}
+            allowed:
+                - IPProtocol: tcp
+                  ports:
+                  {% for port in properties["healthCheckPorts"] %}
+                   - {{ port }}
+                  {% endfor %}
+        type: compute.v1.firewalls
+    -
+        name: assets-healthcheck
+        properties:
+            name: 'assets-healthcheck'
+            description: 'Healthcheck for the Zonal NEG hosting the assets imgproxy service'
+            type: TCP
+            tcpHealthCheck:
+                portSpecification: 'USE_SERVING_PORT'
+        type: compute.v1.healthChecks
+    -
+        name: assets-ip-address
+        properties:
+            description: "IP address used for the load balancer for assets"
+            ipVersion: IPV4
+            name: assets-ip-address
+        type: compute.v1.globalAddresses
+    -
+        name: assets-ipv6-address
+        properties:
+            description: "IPv6 address used for the load balancer for assets"
+            ipVersion: IPV6
+            name: assets-ipv6-address
+        type: compute.v1.globalAddresses
+
+    {% for version, domains in properties["domains"].items() %}
+    {# Certificates cannot be updated, so create a new configuration object for each new configuration #}
+    {% set name = 'assets-certificate-' ~ version %}
+    -
+        name: {{ name }}
+        properties:
+            description: "Certificate configuration for assets domain"
+            managed:
+                domains:
+                {% for domain in domains %}
+                 - {{ domain }}
+                {% endfor %}
+            name: {{ name }}
+            type: MANAGED
+        type: compute.v1.sslCertificates
+    {% endfor %}
+    -
+        name: assets-bucket-backend
+        properties:
+            bucketName: {{ properties['bucket'] }}
+            description: "BackendBucket pointing to bucket containing the assets"
+            name: assets-bucket-backend
+            enableCDN: true
+        type: compute.v1.backendBuckets
+    -
+        name: assets-imgproxy-backend
+        properties:
+            backends:
+            {% for zone in properties["zones"] %}
+                -
+                    balancingMode: RATE
+                    group: compute/v1/projects/{{ env['project'] }}/zones/{{ zone }}/networkEndpointGroups/{{ properties["neg"] }}
+                    maxRatePerEndpoint: 100 # Possibility of oversaturatin imgproxy. Should be handled by k8s autoscaler
+            {% endfor %}
+            description: "BackendService pointing to imgproxy instances"
+            name: assets-imgproxy-backend
+            enableCDN: true
+            healthChecks: [$(ref.assets-healthcheck.selfLink)]
+        type: compute.v1.backendServices
+        metadata:
+            dependsOn:
+                - assets-healthcheck
+    -
+        name: assets-urlmap
+        properties:
+            defaultService: $(ref.assets-bucket-backend.selfLink)
+            description: "Url map to route requests to backend bucket or to thumbnail service"
+            name: assets-urlmap
+            pathMatchers:
+                -
+                    name: match-imgproxy
+                    defaultService: $(ref.assets-bucket-backend.selfLink)
+                    pathRules:
+                        -
+                            paths: ['/thumb/*']
+                            service: $(ref.assets-imgproxy-backend.selfLink)
+            hostRules:
+                -
+                    hosts: ['*']
+                    pathMatcher: match-imgproxy
+        type: compute.v1.urlMaps
+        metadata:
+            dependsOn:
+                - assets-imgproxy-backend
+                - assets-bucket-backend
+    -
+        name: assets-target-proxy
+        properties:
+            name: assets-target-https-proxy
+            sslCertificates:
+                - $(ref.assets-certificate-{{ properties["domainVersion"] }}.selfLink)
+            urlMap: $(ref.assets-urlmap.selfLink)
+        type: compute.v1.targetHttpsProxies
+        metadata:
+            dependsOn:
+                - assets-certificate-{{ properties["domainVersion"] }}
+                - assets-urlmap
+    -
+        name: assets-v4-forwarding-rule
+        properties:
+            IPAddress: $(ref.assets-ip-address.selfLink)
+            IPProtocol: TCP
+            description: "Forwarding rules for assets via IPv4"
+            loadBalancingScheme: EXTERNAL
+            name: assets-forwarding-rule
+            portRange: 443-443
+            target: $(ref.assets-target-proxy.selfLink)
+        type: compute.v1.globalForwardingRules
+        metadata:
+            dependsOn:
+                - assets-target-proxy
+                - assets-ip-address
+    -
+        name: assets-v6-forwarding-rule
+        properties:
+            IPAddress: $(ref.assets-ipv6-address.selfLink)
+            IPProtocol: TCP
+            description: "Forwarding rules for assets via IPv6"
+            loadBalancingScheme: EXTERNAL
+            name: assets-forwarding-rule
+            portRange: 443-443
+            target: $(ref.assets-target-proxy.selfLink)
+        type: compute.v1.globalForwardingRules
+        metadata:
+            dependsOn:
+                - assets-target-proxy
+                - assets-ipv6-address
+    -
+        name: assets-cloud-function-serviceaccount
+        properties:
+            accountId: assets-cloud-function-sa
+            displayName: assets-cloud-function-sa
+        type: iam.v1.serviceAccount
+    -
+        name: assets-sync-serviceaccount
+        properties:
+            accountId: assets-sync-sa
+            displayName: assets-sync-sa
+        type: iam.v1.serviceAccount
